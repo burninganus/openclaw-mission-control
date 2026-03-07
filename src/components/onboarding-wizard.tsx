@@ -730,22 +730,6 @@ export function OnboardingWizard({ onComplete }: { onComplete?: () => void }) {
     void runQuickSetup();
   }, [runQuickSetup]);
 
-  const handleAddAnotherChannel = useCallback(() => {
-    setConnectedChannel(null);
-    setSelectedChannel(null);
-    setChannelToken("");
-    setChannelAppToken("");
-    setChannelResult(null);
-    setPairingRequests([]);
-    setApprovedCodes(new Set());
-    setConnectPhase("idle");
-    setBotName("");
-    setBotUsername("");
-    setPairingTimeout(false);
-    setPairingError(null);
-    setHealthProgress(0);
-    if (pairingTimeoutRef.current) clearTimeout(pairingTimeoutRef.current);
-  }, []);
 
   const visibleStepIndex = step === "model" ? 0 : step === "channel" ? 1 : 1;
   const continueDisabled = !apiKey.trim() || testingKey || keyValid !== true || status?.installed === false;
@@ -1254,14 +1238,7 @@ export function OnboardingWizard({ onComplete }: { onComplete?: () => void }) {
                     ) : null}
                   </div>
 
-                  <div className="flex items-center justify-between pt-2">
-                    <button
-                      type="button"
-                      onClick={handleAddAnotherChannel}
-                      className="rounded-full px-5 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-                    >
-                      Add Another Channel
-                    </button>
+                  <div className="flex items-center justify-end pt-2">
                     <button
                       type="button"
                       onClick={finishSetup}
