@@ -480,7 +480,9 @@ export function OnboardingWizard({ onComplete }: { onComplete?: () => void }) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "test-key", provider, token: apiKey.trim() }),
+          signal: AbortSignal.timeout(15000),
         });
+        if (!res.ok) throw new Error(`Validation failed (${res.status})`);
         const data = await res.json();
         if (seq !== validationSeqRef.current) return;
 
@@ -506,7 +508,7 @@ export function OnboardingWizard({ onComplete }: { onComplete?: () => void }) {
     return () => {
       if (validateTimerRef.current) clearTimeout(validateTimerRef.current);
     };
-  }, [apiKey, fetchLiveModels, model, provider]);
+  }, [apiKey, fetchLiveModels, provider]);
 
   useEffect(() => {
     if (!connectedChannel) {
@@ -519,7 +521,7 @@ export function OnboardingWizard({ onComplete }: { onComplete?: () => void }) {
 
     const poll = async () => {
       try {
-        const res = await fetch("/api/pairing", { cache: "no-store", signal: controller.signal });
+        const res = await fetch("/api/pairing", { cache: "no-store", signal: AbortSignal.any([controller.signal, AbortSignal.timeout(8000)]) });
         if (!res.ok) return;
         const data = await res.json();
         const nextRequests = Array.isArray(data.dm)
@@ -598,7 +600,7 @@ export function OnboardingWizard({ onComplete }: { onComplete?: () => void }) {
     for (let i = 0; i < maxAttempts; i++) {
       setHealthProgress(Math.round(((i + 1) / maxAttempts) * 100));
       try {
-        const res = await fetch(url, { cache: "no-store" });
+        const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(5000) });
         if (res.ok) {
           const data = await res.json();
           // If checking a specific channel, wait until it's ready
@@ -645,6 +647,10 @@ export function OnboardingWizard({ onComplete }: { onComplete?: () => void }) {
         body: JSON.stringify({ channel: currentChannel.id, token: channelToken.trim() }),
         signal: abort.signal,
       });
+      if (!valRes.ok) {
+        const errBody = await valRes.json().catch(() => ({}));
+        throw new Error((errBody as Record<string, string>).error || `Validation failed (${valRes.status})`);
+      }
       const valData = await valRes.json();
       if (valData.ok === false) {
         throw new Error(valData.error || "Token validation failed.");

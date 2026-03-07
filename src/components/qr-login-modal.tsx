@@ -39,7 +39,7 @@ export function QrLoginModal({
   const mountedRef = useRef(true);
   const notifiedSuccessRef = useRef(false);
   const onSuccessRef = useRef(onSuccess);
-  onSuccessRef.current = onSuccess;
+  useEffect(() => { onSuccessRef.current = onSuccess; }, [onSuccess]);
 
   const finishSuccess = useCallback(() => {
     if (notifiedSuccessRef.current) return;
@@ -137,8 +137,18 @@ export function QrLoginModal({
     mountedRef.current = true;
     const timer = window.setTimeout(() => connect(false), 0);
 
+    // Hard timeout: if login hasn't succeeded after 2 minutes, show error
+    const loginTimeout = window.setTimeout(() => {
+      if (!notifiedSuccessRef.current && mountedRef.current) {
+        setState("error");
+        setErrorMessage("QR login timed out. Please try again.");
+        closeStream();
+      }
+    }, 120_000);
+
     return () => {
       window.clearTimeout(timer);
+      window.clearTimeout(loginTimeout);
       mountedRef.current = false;
       closeStream();
     };

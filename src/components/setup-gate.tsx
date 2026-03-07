@@ -80,14 +80,8 @@ export function SetupGate({ children }: { children: React.ReactNode }) {
   const skipped = useSkippedOnboarding();
 
   const fetchStatus = useCallback(async () => {
-    if (cachedStatus && Date.now() - cachedStatus.ts < CACHE_TTL) {
-      setStatus(cachedStatus.data);
-      setLoading(false);
-      setError(false);
-      return;
-    }
-
-    // Deduplicate in-flight requests
+    // Deduplicate in-flight requests first (before cache check) to avoid
+    // concurrent requests that both see an expired cache and fire fetches.
     if (fetchInFlight) {
       await fetchInFlight;
       if (cachedStatus) {
@@ -98,10 +92,18 @@ export function SetupGate({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    if (cachedStatus && Date.now() - cachedStatus.ts < CACHE_TTL) {
+      setStatus(cachedStatus.data);
+      setLoading(false);
+      setError(false);
+      return;
+    }
+
     setLoading(true);
+    setError(false);
     const request = (async () => {
       try {
-        const res = await fetch("/api/onboard", { cache: "no-store" });
+        const res = await fetch("/api/onboard", { cache: "no-store", signal: AbortSignal.timeout(15000) });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = (await res.json()) as SetupStatus;
         cachedStatus = { data, ts: Date.now() };
