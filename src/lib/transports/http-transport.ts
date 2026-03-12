@@ -8,9 +8,16 @@
  * Auth: Authorization: Bearer <OPENCLAW_GATEWAY_TOKEN>
  */
 
-import { getGatewayUrl } from "../paths";
+import { readdir as readDirLocal } from "fs/promises";
+import { getGatewayToken, getGatewayUrl } from "../paths";
 import { GatewayRpcClient } from "../gateway-rpc";
-import { parseJsonFromCliOutput, type RunCliResult } from "../openclaw-cli";
+import {
+  parseJsonFromCliOutput,
+  runCli as runLocalCli,
+  runCliCaptureBoth as runLocalCliCaptureBoth,
+  runCliJson as runLocalCliJson,
+  type RunCliResult,
+} from "../openclaw-cli";
 import type { OpenClawClient, TransportMode } from "../openclaw-client";
 
 export class HttpTransport implements OpenClawClient {
@@ -19,8 +26,16 @@ export class HttpTransport implements OpenClawClient {
   private rpcClient: GatewayRpcClient | null = null;
 
   constructor(gatewayUrl?: string, token?: string) {
-    this.token = token || process.env.OPENCLAW_GATEWAY_TOKEN || "";
+    this.token = token ?? getGatewayToken();
     this.gatewayUrlCache = gatewayUrl || null;
+  }
+
+  private isExecToolUnavailable(error: unknown): boolean {
+    const message = String(error || "").toLowerCase();
+    return (
+      message.includes("tool not available: exec") ||
+      (message.includes("/tools/invoke exec returned 404") && message.includes("not available"))
+    );
   }
 
   getTransport(): TransportMode {
@@ -131,8 +146,13 @@ export class HttpTransport implements OpenClawClient {
 
   async runJson<T>(args: string[], timeout = 15000): Promise<T> {
     const command = `openclaw ${args.join(" ")} --json`;
-    const raw = await this.execCommand(command, timeout);
-    return parseJsonFromCliOutput<T>(raw, command);
+    try {
+      const raw = await this.execCommand(command, timeout);
+      return parseJsonFromCliOutput<T>(raw, command);
+    } catch (error) {
+      if (!this.isExecToolUnavailable(error)) throw error;
+      return runLocalCliJson<T>(args, timeout);
+    }
   }
 
   async run(
@@ -141,13 +161,18 @@ export class HttpTransport implements OpenClawClient {
     stdin?: string,
   ): Promise<string> {
     const command = `openclaw ${args.join(" ")}`;
-    if (stdin) {
-      const result = await this.invoke<
-        { output?: string; stdout?: string; result?: string; content?: unknown; details?: unknown } | string
-      >("exec", { command, stdin }, timeout, "json");
-      return this.resultToText(result);
+    try {
+      if (stdin) {
+        const result = await this.invoke<
+          { output?: string; stdout?: string; result?: string; content?: unknown; details?: unknown } | string
+        >("exec", { command, stdin }, timeout, "json");
+        return this.resultToText(result);
+      }
+      return this.execCommand(command, timeout);
+    } catch (error) {
+      if (!this.isExecToolUnavailable(error)) throw error;
+      return runLocalCli(args, timeout, stdin);
     }
-    return this.execCommand(command, timeout);
   }
 
   async runCapture(args: string[], timeout = 15000): Promise<RunCliResult> {
@@ -156,6 +181,9 @@ export class HttpTransport implements OpenClawClient {
       const stdout = await this.execCommand(command, timeout);
       return { stdout, stderr: "", code: 0 };
     } catch (err) {
+      if (this.isExecToolUnavailable(err)) {
+        return runLocalCliCaptureBoth(args, timeout);
+      }
       return {
         stdout: "",
         stderr: err instanceof Error ? err.message : String(err),
@@ -189,8 +217,14 @@ export class HttpTransport implements OpenClawClient {
   }
 
   async readdir(path: string): Promise<string[]> {
-    const raw = await this.execCommand(`ls -1 "${path}"`);
-    return raw.split("\n").filter(Boolean);
+    try {
+      const raw = await this.execCommand(`ls -1 "${path}"`);
+      return raw.split("\n").filter(Boolean);
+    } catch (error) {
+      if (!this.isExecToolUnavailable(error)) throw error;
+      const entries = await readDirLocal(path);
+      return entries.map(String);
+    }
   }
 
   async gatewayFetch(path: string, init?: RequestInit): Promise<Response> {
