@@ -3385,7 +3385,6 @@ function EditAgentModal({
       }
 
       setSuccess(true);
-      requestRestart("Agent settings updated — restart to pick up changes.");
       setTimeout(() => {
         onSaved();
         onClose();

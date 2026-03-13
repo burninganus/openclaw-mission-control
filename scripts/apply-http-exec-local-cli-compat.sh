@@ -3,25 +3,43 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_FILE="${ROOT_DIR}/src/lib/transports/http-transport.ts"
+AGENTS_FILE="${ROOT_DIR}/src/components/agents-view.tsx"
 
 if [[ ! -f "${TARGET_FILE}" ]]; then
   echo "Target file not found: ${TARGET_FILE}" >&2
   exit 1
 fi
 
+if [[ ! -f "${AGENTS_FILE}" ]]; then
+  echo "Target file not found: ${AGENTS_FILE}" >&2
+  exit 1
+fi
+
+HTTP_PATCHED=0
+AGENTS_PATCHED=0
+
 if grep -q "runCliCaptureBoth as runLocalCliCaptureBoth" "${TARGET_FILE}"; then
-  echo "http-transport exec compatibility patch is already applied."
+  HTTP_PATCHED=1
+fi
+
+if ! grep -q 'requestRestart("Agent settings updated — restart to pick up changes.");' "${AGENTS_FILE}"; then
+  AGENTS_PATCHED=1
+fi
+
+if [[ "${HTTP_PATCHED}" -eq 1 && "${AGENTS_PATCHED}" -eq 1 ]]; then
+  echo "http transport and agent-save restart patches are already applied."
   exit 0
 fi
 
-python3 - "${TARGET_FILE}" <<'PY'
+python3 - "${TARGET_FILE}" "${HTTP_PATCHED}" <<'PY'
 from pathlib import Path
 import sys
 
 path = Path(sys.argv[1])
+already_patched = sys.argv[2] == "1"
 text = path.read_text(encoding="utf-8")
 
-if "runCliCaptureBoth as runLocalCliCaptureBoth" in text:
+if already_patched or "runCliCaptureBoth as runLocalCliCaptureBoth" in text:
     print("http-transport exec compatibility patch is already applied.")
     raise SystemExit(0)
 
@@ -208,4 +226,22 @@ text = replace_once(
 
 path.write_text(text, encoding="utf-8")
 print("Applied http-transport exec compatibility patch.")
+PY
+
+python3 - "${AGENTS_FILE}" "${AGENTS_PATCHED}" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+already_patched = sys.argv[2] == "1"
+text = path.read_text(encoding="utf-8")
+needle = '      requestRestart("Agent settings updated — restart to pick up changes.");\n'
+
+if already_patched or needle not in text:
+    print("agent-save restart patch is already applied.")
+    raise SystemExit(0)
+
+text = text.replace(needle, "", 1)
+path.write_text(text, encoding="utf-8")
+print("Applied agent-save restart patch.")
 PY
